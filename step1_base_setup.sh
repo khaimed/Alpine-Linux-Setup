@@ -39,8 +39,7 @@ apk add --no-cache \
   alpine-base alpine-sdk build-base linux-firmware doas sudo \
   eudev e2fsprogs dosfstools ntfs-3g \
   bash bash-completion coreutils util-linux pciutils usbutils \
-  curl wget git nano vim htop lsblk \
-  neofetch dhclient \
+  curl wget git nano vim htop lsblk neofetch \
   openssh openssh-server chrony tzdata \
   networkmanager wpa_supplicant wireless-tools
 ok "Packages installed"
