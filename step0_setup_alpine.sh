@@ -22,7 +22,7 @@ error()    { echo -e "${RED}[ERROR]${NC} $1" ; }
 # ---------- packages ----------
 msg "Installing required packages ..."
 apk update
-apk add --no-cache lsblk fdisk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gdisk bc
+apk add --no-cache lsblk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gdisk bc
 success "Packages installed"
 
 # ---------- select disk ----------
