@@ -1,3 +1,24 @@
+# Guide de installation de Alpine
+
+1. Démarrage depuis une clé USB Alpine Linux
+2. Connectez-vous en tant que root
+3. Exécution de Setup-Alpine
+4. Terminer Setup-Alpine sans installation : [None]
+5. Affichage du nom de localhost
+6. Téléchargez le script :
+   ```
+   wget https://raw.githubusercontent.com/khaimed/Alpine-Linux-Setup/main/step0_setup_alpine.sh
+   ```
+   (Ou utilisez le script ci-joint)
+7. Rendez-le exécutable :
+   ```
+   chmod +x step0_setup_alpine.sh
+   ```
+8.Exécutez-le :
+   ```
+   ./step0_setup_alpine.sh
+   ```
+
 # Guide de Configuration pour i3wm, rofi et polybar
 
 Ce guide vous aidera à personnaliser votre environnement i3wm, rofi et polybar après l'installation de base. Les scripts d'installation ont déjà mis en place les configurations de base, mais vous pourriez vouloir les personnaliser davantage selon vos préférences.
