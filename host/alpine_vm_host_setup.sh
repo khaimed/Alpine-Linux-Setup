@@ -69,7 +69,7 @@ print_success "Dépôts mis à jour"
 
 # Installation des paquets de base
 print_message "Installation des paquets système essentiels..."
-apk add alpine-base alpine-sdk build-base linux-firmware doas sudo
+apk add alpine-base alpine-sdk build-base linux-firmware sudo
 apk add eudev udev-init-scripts udev-init-scripts-openrc
 apk add e2fsprogs e2fsprogs-extra dosfstools ntfs-3g
 apk add bash bash-completion coreutils util-linux pciutils usbutils
@@ -182,117 +182,76 @@ mkdir -p /mnt/vm/images
 mkdir -p /mnt/vm/xml
 print_success "Répertoires pour les images VM créés"
 
-# Configuration de i3wm
-print_message "Configuration de i3wm..."
-mkdir -p /etc/skel/.config/i3
-mkdir -p /etc/skel/.config/i3status
+# Fonction pour copier les fichiers de configuration d'origine
+copy_config_file() {
+    local source_paths=("$@")
+    local dest_dir="${source_paths[-1]}"
+    local file_name="${source_paths[-2]}"
+    unset 'source_paths[${#source_paths[@]}-1]'
+    unset 'source_paths[${#source_paths[@]}-1]'
+    
+    # Créer le répertoire de destination s'il n'existe pas
+    mkdir -p "$dest_dir"
+    
+    # Parcourir les chemins source possibles
+    for src_path in "${source_paths[@]}"; do
+        if [ -f "$src_path" ]; then
+            cp "$src_path" "$dest_dir/$file_name"
+            print_success "Fichier de configuration copié: $src_path -> $dest_dir/$file_name"
+            return 0
+        fi
+    done
+    
+    print_warning "Aucun fichier de configuration trouvé pour $file_name"
+    return 1
+}
 
-# Configuration de base i3wm
-cat > /etc/skel/.config/i3/config << EOF
-# i3 config file (v4)
-set \$mod Mod4
-font pango:DejaVu Sans Mono 10
-floating_modifier \$mod
-bindsym \$mod+Return exec xfce4-terminal
-bindsym \$mod+Shift+q kill
-bindsym \$mod+d exec dmenu_run
-bindsym \$mod+j focus left
-bindsym \$mod+k focus down
-bindsym \$mod+l focus up
-bindsym \$mod+semicolon focus right
-bindsym \$mod+Left focus left
-bindsym \$mod+Down focus down
-bindsym \$mod+Up focus up
-bindsym \$mod+Right focus right
-bindsym \$mod+Shift+j move left
-bindsym \$mod+Shift+k move down
-bindsym \$mod+Shift+l move up
-bindsym \$mod+Shift+semicolon move right
-bindsym \$mod+Shift+Left move left
-bindsym \$mod+Shift+Down move down
-bindsym \$mod+Shift+Up move up
-bindsym \$mod+Shift+Right move right
-bindsym \$mod+h split h
-bindsym \$mod+v split v
-bindsym \$mod+f fullscreen toggle
-bindsym \$mod+s layout stacking
-bindsym \$mod+w layout tabbed
-bindsym \$mod+e layout toggle split
-bindsym \$mod+Shift+space floating toggle
-bindsym \$mod+space focus mode_toggle
-bindsym \$mod+a focus parent
-set \$ws1 "1"
-set \$ws2 "2"
-set \$ws3 "3"
-set \$ws4 "4"
-bindsym \$mod+1 workspace number \$ws1
-bindsym \$mod+2 workspace number \$ws2
-bindsym \$mod+3 workspace number \$ws3
-bindsym \$mod+4 workspace number \$ws4
-bindsym \$mod+Shift+1 move container to workspace number \$ws1
-bindsym \$mod+Shift+2 move container to workspace number \$ws2
-bindsym \$mod+Shift+3 move container to workspace number \$ws3
-bindsym \$mod+Shift+4 move container to workspace number \$ws4
-bindsym \$mod+Shift+c reload
-bindsym \$mod+Shift+r restart
-bindsym \$mod+Shift+e exec "i3-nagbar -t warning -m 'Exit i3?' -B 'Yes' 'i3-msg exit'"
-mode "resize" {
-        bindsym j resize shrink width 10 px or 10 ppt
-        bindsym k resize grow height 10 px or 10 ppt
-        bindsym l resize shrink height 10 px or 10 ppt
-        bindsym semicolon resize grow width 10 px or 10 ppt
-        bindsym Left resize shrink width 10 px or 10 ppt
-        bindsym Down resize grow height 10 px or 10 ppt
-        bindsym Up resize shrink height 10 px or 10 ppt
-        bindsym Right resize grow width 10 px or 10 ppt
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
-        bindsym \$mod+r mode "default"
-}
-bindsym \$mod+r mode "resize"
-bar {
-        status_command i3status
-}
-exec --no-startup-id nm-applet
-exec --no-startup-id blueman-applet
-EOF
+# Création d'un utilisateur si demandé
+print_message "Voulez-vous créer un nouvel utilisateur ? (o/n)"
+read -r CREATE_USER
+if [ "$CREATE_USER" = "o" ] || [ "$CREATE_USER" = "O" ]; then
+    print_message "Entrez le nom d'utilisateur :"
+    read -r USERNAME
+    adduser -g "Utilisateur VM" "$USERNAME"
+    addgroup "$USERNAME" libvirt
+    addgroup "$USERNAME" kvm
+    addgroup "$USERNAME" audio
+    addgroup "$USERNAME" video
+    addgroup "$USERNAME" input
+    addgroup "$USERNAME" wheel
+    print_success "Utilisateur $USERNAME créé et ajouté aux groupes nécessaires"
+    
+    # Copie des fichiers de configuration pour le nouvel utilisateur
+    USER_HOME="/home/$USERNAME"
+    
+    # Copier les fichiers de configuration i3wm
+    print_message "Copie des fichiers de configuration i3wm..."
+    copy_config_file "/etc/i3/config" "/usr/share/doc/i3/config" "/usr/share/i3/config" "config" "$USER_HOME/.config/i3"
+    
+    # Copier les fichiers de configuration i3status
+    print_message "Copie des fichiers de configuration i3status..."
+    copy_config_file "/etc/i3status.conf" "/usr/share/doc/i3status/config" "/usr/share/i3status/config" "config" "$USER_HOME/.config/i3status"
+    
+    # Copier les fichiers de configuration rofi
+    print_message "Copie des fichiers de configuration rofi..."
+    copy_config_file "/etc/rofi/config.rasi" "/usr/share/rofi/config.rasi" "config.rasi" "$USER_HOME/.config/rofi"
+    
+    # Copier les fichiers de configuration xfce4-terminal
+    print_message "Copie des fichiers de configuration xfce4-terminal..."
+    copy_config_file "/etc/xfce4/terminal/terminalrc" "/usr/share/xfce4/terminal/terminalrc" "terminalrc" "$USER_HOME/.config/xfce4/terminal"
+    
+    # Copier les fichiers de configuration picom
+    print_message "Copie des fichiers de configuration picom..."
+    copy_config_file "/etc/xdg/picom.conf" "/etc/picom.conf" "/usr/share/doc/picom/picom.conf.example" "picom.conf" "$USER_HOME/.config/picom"
+    
+    # Changer le propriétaire des fichiers de configuration
+    chown -R "$USERNAME:$USERNAME" "$USER_HOME/.config"
+fi
 
-# Configuration i3status
-cat > /etc/skel/.config/i3status/config << EOF
-general {
-        colors = true
-        interval = 5
-}
-order += "wireless _first_"
-order += "ethernet _first_"
-order += "disk /"
-order += "disk /mnt/vm"
-order += "memory"
-order += "tztime local"
-wireless _first_ {
-        format_up = "W: (%quality at %essid) %ip"
-        format_down = "W: down"
-}
-ethernet _first_ {
-        format_up = "E: %ip (%speed)"
-        format_down = "E: down"
-}
-disk "/" {
-        format = "/ %avail"
-}
-disk "/mnt/vm" {
-        format = "VM %avail"
-}
-memory {
-        format = "%used | %available"
-        threshold_degraded = "1G"
-        format_degraded = "MEMORY < %available"
-}
-tztime local {
-        format = "%Y-%m-%d %H:%M:%S"
-}
-EOF
-print_success "i3wm configuré"
+# Configuration de sudo
+echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+chmod 440 /etc/sudoers.d/wheel
+print_success "Sudo configuré"
 
 # Configuration pour le passthrough matériel
 print_message "Configuration pour le passthrough matériel..."
@@ -337,32 +296,6 @@ fi
 EOF
 chmod +x /etc/libvirt/hooks/qemu
 print_success "Libvirt configuré pour le passthrough"
-
-# Création d'un utilisateur si demandé
-print_message "Voulez-vous créer un nouvel utilisateur ? (o/n)"
-read -r CREATE_USER
-if [ "$CREATE_USER" = "o" ] || [ "$CREATE_USER" = "O" ]; then
-    print_message "Entrez le nom d'utilisateur :"
-    read -r USERNAME
-    adduser -g "Utilisateur VM" "$USERNAME"
-    addgroup "$USERNAME" libvirt
-    addgroup "$USERNAME" kvm
-    addgroup "$USERNAME" audio
-    addgroup "$USERNAME" video
-    addgroup "$USERNAME" input
-    addgroup "$USERNAME" wheel
-    print_success "Utilisateur $USERNAME créé et ajouté aux groupes nécessaires"
-    
-    # Copie des fichiers de configuration pour le nouvel utilisateur
-    mkdir -p /home/$USERNAME/.config
-    cp -r /etc/skel/.config/* /home/$USERNAME/.config/
-    chown -R $USERNAME:$USERNAME /home/$USERNAME/.config
-fi
-
-# Configuration de sudo
-echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
-chmod 440 /etc/sudoers.d/wheel
-print_success "Sudo configuré"
 
 # Création des scripts de démarrage VM
 print_message "Création des scripts de démarrage VM..."
