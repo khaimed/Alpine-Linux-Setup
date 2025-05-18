@@ -36,7 +36,7 @@ fi
 # Installation des outils nécessaires
 print_message "Installation des outils nécessaires..."
 apk update
-apk add cfdisk lsblk e2fsprogs ntfs-3g ntfs-3g-progs dosfstools
+apk add fdisk lsblk e2fsprogs ntfs-3g ntfs-3g-progs dosfstools
 print_success "Outils installés"
 
 # Détection des disques disponibles
@@ -89,55 +89,28 @@ else
     # Storage prendra le reste de l'espace
 fi
 
-# Création du script pour cfdisk
-print_message "Création du script de partitionnement..."
-TMP_SCRIPT=$(mktemp)
-cat > "$TMP_SCRIPT" << EOF
-#!/bin/sh
-# Script temporaire pour cfdisk
+# Effacer la table de partitions existante et créer une nouvelle table GPT
+print_message "Effacement de la table de partitions existante..."
+sgdisk --zap-all /dev/${DISK}
 
-# Effacer la table de partitions existante
-echo -e "g\nw\nq\n" | fdisk /dev/${DISK}
-
-# Créer les partitions avec cfdisk
-(
-echo n # nouvelle partition (EFI)
-echo   # partition primaire (par défaut)
-echo   # premier secteur (par défaut)
-echo +${EFI_SIZE} # taille
-echo t # changer le type
-echo 1 # EFI System
-echo n # nouvelle partition (Alpine)
-echo   # partition primaire (par défaut)
-echo   # premier secteur (par défaut)
-echo +${ALPINE_SIZE} # taille
-echo n # nouvelle partition (Swap)
-echo   # partition primaire (par défaut)
-echo   # premier secteur (par défaut)
-echo +${SWAP_SIZE} # taille
-echo t # changer le type
-echo 3 # numéro de partition
-echo 19 # Linux swap
-echo n # nouvelle partition (VM)
-echo   # partition primaire (par défaut)
-echo   # premier secteur (par défaut)
-echo +${VM_SIZE} # taille
-echo n # nouvelle partition (Storage)
-echo   # partition primaire (par défaut)
-echo   # premier secteur (par défaut)
-echo   # dernier secteur (par défaut, utilise tout l'espace restant)
-echo t # changer le type
-echo 5 # numéro de partition
-echo 11 # Microsoft basic data (NTFS)
-echo w # écrire les changements
-) | fdisk /dev/${DISK}
-EOF
-chmod +x "$TMP_SCRIPT"
-
-# Exécution du script de partitionnement
+# Partitionnement avec sgdisk (outil non-interactif)
 print_message "Partitionnement du disque /dev/${DISK}..."
-"$TMP_SCRIPT"
-rm "$TMP_SCRIPT"
+
+# Créer la partition EFI (1)
+sgdisk --new=1:0:+${EFI_SIZE} --typecode=1:ef00 --change-name=1:"EFI" /dev/${DISK}
+
+# Créer la partition Alpine Linux (2)
+sgdisk --new=2:0:+${ALPINE_SIZE} --typecode=2:8300 --change-name=2:"Alpine Linux" /dev/${DISK}
+
+# Créer la partition Swap (3)
+sgdisk --new=3:0:+${SWAP_SIZE} --typecode=3:8200 --change-name=3:"Swap" /dev/${DISK}
+
+# Créer la partition VM (4)
+sgdisk --new=4:0:+${VM_SIZE} --typecode=4:8300 --change-name=4:"Virtual Machine" /dev/${DISK}
+
+# Créer la partition Storage (5) - utilise le reste de l'espace
+sgdisk --new=5:0:0 --typecode=5:0700 --change-name=5:"Storage" /dev/${DISK}
+
 print_success "Partitionnement terminé"
 
 # Attendre que le système détecte les nouvelles partitions
