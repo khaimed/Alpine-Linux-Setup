@@ -20,9 +20,10 @@ error()    { echo -e "${RED}[ERROR]${NC} $1" ; }
 [ "$(id -u)" -eq 0 ] || { error "Run as root" ; exit 1 ; }
 
 # ---------- packages ----------
+# fdisk is part of util-linux; sgdisk is provided by gptfdisk
 msg "Installing required packages ..."
 apk update
-apk add --no-cache lsblk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gdisk bc
+apk add --no-cache lsblk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gptfdisk bc
 success "Packages installed"
 
 # ---------- select disk ----------
@@ -30,7 +31,7 @@ msg "Available disks:"
 lsblk -o NAME,SIZE,TYPE,MOUNTPOINT | grep -E "disk|part" | grep -v loop
 echo
 read -rp "Disk to use (e.g. sda, nvme0n1): " DISK
-[ -b /dev/$DISK ] || { error "/dev/$DISK not found" ; exit 1 ; }
+[ -b "/dev/$DISK" ] || { error "/dev/$DISK not found" ; exit 1 ; }
 
 warn "This will ERASE /dev/$DISK entirely!"
 read -rp "Continue? [y/N]: " confirm
@@ -60,31 +61,31 @@ msg "Wiping existing partition table ..."
 sgdisk --zap-all /dev/$DISK
 
 msg "Creating GPT partitions with sgdisk ..."
-sgdisk -n1:0:+$EFI_SIZE   -t1:ef00 -c1:"EFI" \
-       -n2:0:+$ALPINE_SIZE -t2:8300 -c2:"Alpine Linux" \
-       -n3:0:+$SWAP_SIZE   -t3:8200 -c3:"Swap" \
+sgdisk -n1:0:+$EFI_SIZE   -t1:ef00 -c1:"EFI"              \
+       -n2:0:+$ALPINE_SIZE -t2:8300 -c2:"Alpine Linux"    \
+       -n3:0:+$SWAP_SIZE   -t3:8200 -c3:"Swap"            \
        -n4:0:+$VM_SIZE     -t4:8300 -c4:"Virtual Machine" \
-       -n5:0:0             -t5:0700 -c5:"Storage" /dev/$DISK
+       -n5:0:0             -t5:0700 -c5:"Storage"         /dev/$DISK
 success "Partitions created"
 
-# wait for /dev entries
+# wait for udev
 udevadm settle
 
 # ---------- formatting ----------
 msg "Formatting filesystems ..."
-mkfs.vfat -F32 -n EFI /dev/${DISK}1
-mkfs.ext4 -L "Alpine Linux" /dev/${DISK}2
-mkswap   -L swap /dev/${DISK}3
+mkfs.vfat -F32 -n EFI          /dev/${DISK}1
+mkfs.ext4 -L "Alpine Linux"    /dev/${DISK}2
+mkswap   -L swap               /dev/${DISK}3
 mkfs.ext4 -L "Virtual Machine" /dev/${DISK}4
-mkfs.ntfs -f -L Storage /dev/${DISK}5
+mkfs.ntfs -f -L storage        /dev/${DISK}5
 success "Filesystems ready"
 
 # ---------- mount ----------
 msg "Mounting filesystems ..."
 mount /dev/${DISK}2 /mnt
 mkdir -p /mnt/boot /mnt/vm /mnt/storage
-mount -t vfat   /dev/${DISK}1 /mnt/boot
-mount -t ext4   /dev/${DISK}4 /mnt/vm
+mount -t vfat    /dev/${DISK}1 /mnt/boot
+mount -t ext4    /dev/${DISK}4 /mnt/vm
 mount -t ntfs-3g /dev/${DISK}5 /mnt/storage
 swapon /dev/${DISK}3
 success "Mounted"
@@ -96,8 +97,8 @@ success "Alpine installed"
 
 # ---------- fstab entries ----------
 msg "Adding extra mountpoints to fstab ..."
-grep -q "\\s/vm\\s" /mnt/etc/fstab || echo "/dev/${DISK}4 /vm ext4 defaults 0 0" >> /mnt/etc/fstab
-grep -q "\\s/storage\\s" /mnt/etc/fstab || echo "/dev/${DISK}5 /storage ntfs-3g defaults 0 0" >> /mnt/etc/fstab
+grep -q " /vm " /mnt/etc/fstab || echo "/dev/${DISK}4 /vm ext4 defaults 0 0" >> /mnt/etc/fstab
+grep -q " /storage " /mnt/etc/fstab || echo "/dev/${DISK}5 /storage ntfs-3g defaults 0 0" >> /mnt/etc/fstab
 success "fstab updated"
 
 msg "All done! You can now 'umount -R /mnt && reboot'."
