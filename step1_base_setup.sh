@@ -28,6 +28,7 @@ cat >/etc/apk/repositories <<EOF
 https://dl-cdn.alpinelinux.org/alpine/latest-stable/main
 https://dl-cdn.alpinelinux.org/alpine/latest-stable/community
 https://dl-cdn.alpinelinux.org/alpine/edge/community
+https://dl-cdn.alpinelinux.org/alpine/edge/testing
 EOF
 apk update
 ok "Repos updated"
@@ -38,9 +39,10 @@ apk add --no-cache \
   alpine-base alpine-sdk build-base linux-firmware doas sudo \
   eudev e2fsprogs dosfstools ntfs-3g \
   bash bash-completion coreutils util-linux pciutils usbutils \
-  curl wget git nano vim htop neofetch lsblk \
+  curl wget git nano vim htop lsblk \
+  neofetch dhclient \
   openssh openssh-server chrony tzdata \
-  networkmanager wpa_supplicant wireless-tools dhclient
+  networkmanager wpa_supplicant wireless-tools
 ok "Packages installed"
 
 # ---------- Services Enable ----------
