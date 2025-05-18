@@ -23,7 +23,7 @@ error()    { echo -e "${RED}[ERROR]${NC} $1" ; }
 # fdisk is part of util-linux; sgdisk is provided by gptfdisk
 msg "Installing required packages ..."
 apk update
-apk add --no-cache lsblk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gptfdisk bc
+apk add --no-cache lsblk e2fsprogs dosfstools ntfs-3g ntfs-3g-progs util-linux gptfdisk sgdisk bc
 success "Packages installed"
 
 # ---------- select disk ----------
@@ -68,8 +68,9 @@ sgdisk -n1:0:+$EFI_SIZE   -t1:ef00 -c1:"EFI"              \
        -n5:0:0             -t5:0700 -c5:"Storage"         /dev/$DISK
 success "Partitions created"
 
-# wait for udev
-udevadm settle
+# wait for kernel to refresh partition table
+msg "Waiting for partition nodes to appear ..."
+sleep 3
 
 # ---------- formatting ----------
 msg "Formatting filesystems ..."
