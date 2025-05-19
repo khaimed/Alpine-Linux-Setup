@@ -11,7 +11,7 @@ echo "== Alpine i3 Environment Setup =="
 # 1. Enable community repository for needed packages:contentReference[oaicite:65]{index=65}
 if grep -q "^#.*\/community" /etc/apk/repositories; then
     echo ":: Enabling Alpine community repository..."
-    sed -i 's/^#\(.*\/community\)/\1/' /etc/apk/repositories"
+    sed -i 's/^#\(.*\/community\)/\1/' /etc/apk/repositories
     apk update
 fi
 
@@ -33,7 +33,8 @@ rc-service dbus start 2>/dev/null || true
 # Determine the non-root username for config file placement
 USER_NAME="${SUDO_USER:-$USER}"
 if [ "$USER_NAME" = "root" ]; then
-    read -p "Enter your regular (non-root) username: " USER_NAME
+    printf "Enter your regular (non-root) username: "
+    read USER_NAME
 fi
 if ! id "$USER_NAME" >/dev/null 2>&1; then
     echo "ERROR: User '$USER_NAME' does not exist. Please create a user before running this script."
