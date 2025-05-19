@@ -119,22 +119,30 @@ if [ -n "$KB" ]; then
     fi
 fi
 
-# 4b. Screen Resolution prompt (with listing of connected outputs)
-echo ">> Available display outputs and their modes:"
-xrandr | grep " connected" | while read line; do
-    # Print the connected output line plus its available modes indented
-    output=$(echo "$line" | cut -d' ' -f1)
-    echo "  • $line"
-    xrandr --query | awk -v out="$output" '
-      $1==out && NF>=2 && $2=="connected" { next }
-      $1 ~ /^[[:alnum:]-]+$/ && $1!=out && prev==out && $2 ~ /^[0-9]+x[0-9]+$/ {
-        print "     └ mode: "$1
+# 4b. Screen Resolution prompt (safe outside or inside X)
+echo ">> Screen Resolution Configuration"
+if [ -n "${DISPLAY-}" ]; then
+    echo "   Available outputs and their modes:"
+    # List each connected output and its modes
+    xrandr --query | awk '
+      / connected/ {
+        out=$1
+        printf "  • %s\n", $0
+        next
       }
-      { prev=$1 }
+      /^[[:alnum:]-]+/ && $2 ~ /^[0-9]+x[0-9]+$/ && prev_out {
+        printf "     └ mode: %s\n", $1
+      }
+      { prev_out = ($2=="connected"? $1 : prev_out) }
     '
-done
+else
+    echo "   Warning: No X display found. Cannot list outputs."
+    echo "            If you want the auto-listing, log into X (via Ly or startx),"
+    echo "            open a terminal, and rerun this script in that terminal."
+fi
 
-printf ">> Enter the output name you want to configure (e.g. eDP-1): "
+# Prompt regardless, so you can still configure manually
+printf ">> Enter the output name to configure (e.g. eDP-1): "
 read DISP
 if [ -n "$DISP" ]; then
     printf ">> Enter desired resolution for %s (e.g. 1920x1080): " "$DISP"
@@ -142,7 +150,7 @@ if [ -n "$DISP" ]; then
     if [ -n "$RES" ]; then
         if ! grep -q "xrandr --output $DISP" "$I3CONFIG"; then
             echo ">> Adding xrandr command for $DISP $RES in i3 config..."
-            printf "\n# Set screen resolution\nexec_always --no-startup-id xrandr --output %s --mode %s\n" \
+            printf "\n# Set screen resolution for $DISP\nexec_always --no-startup-id xrandr --output %s --mode %s\n" \
                 "$DISP" "$RES" >> "$I3CONFIG"
         fi
     fi
