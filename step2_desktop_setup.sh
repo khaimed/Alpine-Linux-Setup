@@ -21,8 +21,9 @@ apk add --no-cache \
     i3wm xfce4-terminal \
     polybar rofi \
     ly ly-openrc \
-    xorg-server xorg-xinit \
-    xf86-video-fbdev xf86-video-vesa xf86-input-libinput mesa-dbgsym \
+    xorg-server xinit \
+    xf86-video-vesa xf86-video-fbdev xf86-input-libinput \
+    mesa-dri-gallium \
     setxkbmap xrandr autorandr \
     font-terminus dbus
 
