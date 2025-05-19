@@ -119,39 +119,33 @@ fi
 
 # Fonction pour copier les fichiers de configuration d'origine avec timeout
 copy_config_file() {
-    # convertir les arguments en tableau source_paths manuellement
-    set -- "$@"
     count=$#
-    dest_dir="${!count}"; count=$((count - 1))
-    file_name="${!count}"; count=$((count - 1))
+    eval dest_dir=\$$count
+    count=$((count - 1))
+    eval file_name=\$$count
+    count=$((count - 1))
 
-    # Extraire les chemins sources
-    source_paths=""
-    for i in $(seq 1 $count); do
-        eval "source_paths_$i=\${$i}"
-    done
-
-    # Créer le répertoire de destination
     mkdir -p "$dest_dir"
 
     found=0
-    for i in $(seq 1 $count); do
-        eval "src_path=\$source_paths_$i"
+    i=1
+    while [ $i -le $count ]; do
+        eval src_path=\$$i
         if [ -f "$src_path" ]; then
             cp "$src_path" "$dest_dir/$file_name"
             print_success "Fichier de configuration copié: $src_path -> $dest_dir/$file_name"
             found=1
             break
         fi
+        i=$((i + 1))
     done
 
     if [ "$found" -eq 0 ]; then
         print_warning "Aucun fichier de configuration trouvé pour $file_name, création d’un fichier vide"
         touch "$dest_dir/$file_name"
     fi
-
-    return 0
 }
+
 
 # Configuration pour l'utilisateur
 if [ -n "$USERNAME" ]; then
