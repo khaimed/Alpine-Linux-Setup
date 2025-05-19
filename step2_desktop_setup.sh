@@ -119,15 +119,31 @@ if [ -n "$KB" ]; then
     fi
 fi
 
-# 4b. Screen resolution
-read -p ">> Enter output name for screen resolution (e.g., eDP-1, HDMI-1) or press Enter to skip: " DISP
+# 4b. Screen Resolution prompt (with listing of connected outputs)
+echo ">> Available display outputs and their modes:"
+xrandr | grep " connected" | while read line; do
+    # Print the connected output line plus its available modes indented
+    output=$(echo "$line" | cut -d' ' -f1)
+    echo "  • $line"
+    xrandr --query | awk -v out="$output" '
+      $1==out && NF>=2 && $2=="connected" { next }
+      $1 ~ /^[[:alnum:]-]+$/ && $1!=out && prev==out && $2 ~ /^[0-9]+x[0-9]+$/ {
+        print "     └ mode: "$1
+      }
+      { prev=$1 }
+    '
+done
+
+printf ">> Enter the output name you want to configure (e.g. eDP-1): "
+read DISP
 if [ -n "$DISP" ]; then
-    read -p ">> Enter resolution for $DISP (e.g., 1920x1080): " RES
+    printf ">> Enter desired resolution for %s (e.g. 1920x1080): " "$DISP"
+    read RES
     if [ -n "$RES" ]; then
-        if ! grep -q "$DISP --mode $RES" "$I3CONFIG"; then
-            echo ":: Adding xrandr command for $DISP $RES in i3 config..."
-            printf "\n# Screen resolution\nexec_always --no-startup-id xrandr --output %s --mode %s\n" "$DISP" "$RES" >> "$I3CONFIG"
-            echo "   (Note: Ensure '$DISP' is correct; use xrandr to list outputs):contentReference[oaicite:75]{index=75}"
+        if ! grep -q "xrandr --output $DISP" "$I3CONFIG"; then
+            echo ">> Adding xrandr command for $DISP $RES in i3 config..."
+            printf "\n# Set screen resolution\nexec_always --no-startup-id xrandr --output %s --mode %s\n" \
+                "$DISP" "$RES" >> "$I3CONFIG"
         fi
     fi
 fi
