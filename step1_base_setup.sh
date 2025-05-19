@@ -69,7 +69,7 @@ print_success "Dépôts mis à jour"
 
 # Installation des paquets de base
 print_message "Installation des paquets système essentiels..."
-apk add alpine-base alpine-sdk build-base linux-firmware doas sudo
+apk add alpine-base alpine-sdk build-base linux-firmware sudo
 apk add eudev udev-init-scripts udev-init-scripts-openrc
 apk add e2fsprogs e2fsprogs-extra dosfstools ntfs-3g
 apk add bash bash-completion coreutils util-linux pciutils usbutils
