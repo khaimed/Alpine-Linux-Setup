@@ -1,650 +1,168 @@
 #!/bin/sh
-# Step 2: Desktop Environment Setup Script
-# This script installs and configures i3wm, polybar, and other desktop components
-# Run this script after step1_base_setup.sh and a system reboot
+# Alpine Linux i3/Polybar/Rofi/Ly Setup Script
+# This script installs i3 window manager with Polybar and Rofi, sets up the Ly login manager, 
+# and configures X11 with optional settings (keyboard layout, resolution, multi-monitor).
+# It is idempotent (safe to run multiple times). Run as root (e.g., with sudo).
 
-# Couleurs pour les messages
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+set -eu
 
-# Fonction pour afficher les messages
-print_message() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+echo "== Alpine i3 Environment Setup =="
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
+# 1. Enable community repository for needed packages:contentReference[oaicite:65]{index=65}
+if grep -q "^#.*\/community" /etc/apk/repositories; then
+    echo ":: Enabling Alpine community repository..."
+    sed -i 's/^#\(.*\/community\)/\1/' /etc/apk/repositories"
+    apk update
+fi
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
+# 1. Install necessary packages (i3wm, polybar, rofi, ly, X11, terminal, etc.)
+echo ":: Installing packages: i3wm, polybar, rofi, ly, X11, xfce4-terminal, etc..."
+apk add --no-cache \
+    i3wm xfce4-terminal \
+    polybar rofi \
+    ly ly-openrc \
+    xorg-server xorg-xinit \
+    xf86-video-fbdev xf86-video-vesa xf86-input-libinput mesa-dbgsym \
+    setxkbmap xrandr autorandr \
+    font-terminus dbus
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+# Start and enable D-Bus (for desktop features):contentReference[oaicite:66]{index=66}
+rc-update add dbus default 2>/dev/null || true
+rc-service dbus start 2>/dev/null || true
 
-# Activer le mode debug pour voir les commandes exécutées
-set -x
-
-# Vérifier si l'utilisateur est root
-if [ "$(id -u)" -ne 0 ]; then
-    print_error "Ce script doit être exécuté en tant que root"
+# Determine the non-root username for config file placement
+USER_NAME="${SUDO_USER:-$USER}"
+if [ "$USER_NAME" = "root" ]; then
+    read -p "Enter your regular (non-root) username: " USER_NAME
+fi
+if ! id "$USER_NAME" >/dev/null 2>&1; then
+    echo "ERROR: User '$USER_NAME' does not exist. Please create a user before running this script."
     exit 1
 fi
 
-# Charger les informations de détection avec vérification
-if [ -f /etc/alpine_vm_setup/hardware_info ]; then
-    . /etc/alpine_vm_setup/hardware_info
-    print_message "Informations de détection chargées"
-    print_message "CPU détecté: $CPU_TYPE"
-    if [ "$HAS_NVIDIA" = "true" ]; then
-        print_message "Carte graphique NVIDIA détectée"
-    fi
-    if [ -n "$USERNAME" ]; then
-        print_message "Utilisateur: $USERNAME"
-    fi
-else
-    print_error "Informations de détection non trouvées. Exécutez d'abord step1_base_setup.sh"
-    exit 1
+# Add user to video and input groups (for X11 permissions):contentReference[oaicite:67]{index=67}
+echo ":: Ensuring user '$USER_NAME' is in 'video' and 'input' groups..."
+adduser "$USER_NAME" video 2>/dev/null || true
+adduser "$USER_NAME" input 2>/dev/null || true
+
+# Paths
+USER_HOME="/home/$USER_NAME"
+I3CFG_DIR="$USER_HOME/.config/i3"
+POLYCFG_DIR="$USER_HOME/.config/polybar"
+ROFICFG_DIR="$USER_HOME/.config/rofi"
+I3CONFIG="$I3CFG_DIR/config"
+
+# 2. Copy default configs for i3, polybar, rofi
+echo ":: Setting up default configuration files..."
+install -d -m 755 "$I3CFG_DIR" "$POLYCFG_DIR" "$ROFICFG_DIR"
+
+if [ ! -f "$I3CFG_DIR/config" ]; then
+    cp -f /etc/i3/config "$I3CFG_DIR/config"    # Default i3 config:contentReference[oaicite:68]{index=68}
+    cp -f /etc/i3/config.keycodes "$I3CFG_DIR/" 2>/dev/null || true
+    chown -R "$USER_NAME:" "$I3CFG_DIR"
+    echo " + Default i3 config copied to $I3CFG_DIR/"
+fi
+if [ ! -f "$POLYCFG_DIR/config.ini" ] && [ -f /etc/polybar/config.ini ]; then
+    cp -f /etc/polybar/config.ini "$POLYCFG_DIR/config.ini"   # Default polybar config:contentReference[oaicite:69]{index=69}
+    chown -R "$USER_NAME:" "$POLYCFG_DIR"
+    echo " + Default Polybar config copied to $POLYCFG_DIR/config.ini"
+fi
+if [ ! -f "$ROFICFG_DIR/config.rasi" ]; then
+    # Generate default rofi config:contentReference[oaicite:70]{index=70}
+    su - "$USER_NAME" -c "rofi -dump-config > $ROFICFG_DIR/config.rasi" 2>/dev/null || {
+        # Fallback minimal config if rofi command fails
+        echo "@theme \"default\"" > "$ROFICFG_DIR/config.rasi"
+        echo "# (Generated minimal rofi config)" >> "$ROFICFG_DIR/config.rasi"
+    }
+    chown -R "$USER_NAME:" "$ROFICFG_DIR"
+    echo " + Default Rofi config created at $ROFICFG_DIR/config.rasi"
 fi
 
-# Fonction pour installer des paquets avec timeout
-install_packages() {
-    local packages="$1"
-    local description="$2"
-    local timeout=300  # 5 minutes timeout
-    
-    print_message "Installation de $description..."
-    
-    # Utiliser timeout pour éviter les blocages
-    if timeout $timeout apk add $packages; then
-        print_success "$description installés"
-        return 0
-    else
-        print_error "Timeout lors de l'installation de $description"
-        print_warning "Continuez manuellement avec: apk add $packages"
-        return 1
+# 2b. Integrate Polybar and Rofi into i3 config
+if grep -q "status_command i3status" "$I3CONFIG"; then
+    echo ":: Removing default i3status bar from i3 config (using Polybar)..."
+    sed -i 's/^\(bar {\)/#\1/; s/^\(}\)/#\1/; s/status_command i3status/#&/' "$I3CONFIG"
+fi
+if ! grep -q "polybar" "$I3CONFIG"; then
+    echo ":: Adding Polybar autostart to i3 config..."
+    printf "\n# Launch Polybar on i3 start\nexec_always --no-startup-id polybar example\n" >> "$I3CONFIG"
+fi
+if grep -q "dmenu_run" "$I3CONFIG"; then
+    echo ":: Replacing dmenu with rofi in i3 config..."
+    sed -i 's/exec .\?dmenu_run/exec --no-startup-id rofi -show drun/' "$I3CONFIG"
+fi
+
+# 3. X11 configuration: Xwrapper and Ly adjustments
+echo ":: Configuring X11 and Ly for i3..."
+if [ ! -f /etc/X11/Xwrapper.config ]; then
+    echo "needs_root_rights = yes" > /etc/X11/Xwrapper.config   # Allow X as root (for Ly):contentReference[oaicite:71]{index=71}
+    echo " + /etc/X11/Xwrapper.config created (X needs_root_rights=yes):contentReference[oaicite:72]{index=72}"
+fi
+# Configure Ly login manager (TTY and commands):contentReference[oaicite:73]{index=73}
+LY_CFG="/etc/ly/config.ini"
+if [ -f "$LY_CFG" ]; then
+    sed -i 's/^tty *=.*/tty = 7/' "$LY_CFG"
+    sed -i 's/^shutdown_cmd *=.*/shutdown_cmd = \/sbin\/poweroff/' "$LY_CFG"
+    sed -i 's/^restart_cmd *=.*/restart_cmd = \/sbin\/reboot/' "$LY_CFG"
+    echo " + Ly config updated (tty=7, poweroff/reboot commands):contentReference[oaicite:74]{index=74}"
+fi
+
+# 4. Interactive prompts for optional settings
+# 4a. Keyboard layout
+read -p ">> Enter desired keyboard layout (e.g., us, de, fr) or press Enter to skip: " KB
+if [ -n "$KB" ]; then
+    if ! grep -q "setxkbmap $KB" "$I3CONFIG"; then
+        echo ":: Setting keyboard layout to '$KB' in i3 config..."
+        printf "\n# Keyboard layout\nexec_always --no-startup-id setxkbmap %s\n" "$KB" >> "$I3CONFIG"
     fi
-}
-
-# Installation des paquets pour l'environnement graphique minimal
-install_packages "xorg-server xorg-server-common xf86-input-libinput xf86-video-fbdev xf86-input-evdev xauth xinit xrandr mesa-gl mesa-egl" "l'environnement graphique minimal"
-
-# Installation de i3wm et composants
-install_packages "i3wm i3lock dmenu" "i3wm"
-install_packages "xfce4-terminal rofi feh picom" "les composants de bureau"
-install_packages "dunst libnotify" "les notifications"
-install_packages "thunar thunar-volman gvfs gvfs-mtp gvfs-smb" "le gestionnaire de fichiers"
-install_packages "xdg-utils xdg-user-dirs" "les utilitaires XDG"
-
-# Installation de polybar (remplace i3status)
-install_packages "polybar" "polybar"
-
-# Installation de ly-dm
-install_packages "ly" "ly-dm"
-
-# Installation des polices
-install_packages "font-dejavu ttf-dejavu ttf-liberation fontconfig" "les polices"
-
-# Installation des paquets audio
-install_packages "alsa-utils alsa-utils-doc alsa-lib alsaconf" "les utilitaires audio"
-install_packages "pulseaudio pulseaudio-alsa pulseaudio-utils pavucontrol" "pulseaudio"
-
-# Installation des paquets pour le clavier et bluetooth
-install_packages "setxkbmap xkeyboard-config" "la configuration du clavier"
-install_packages "bluez bluez-openrc bluez-libs blueman" "bluetooth"
-rc-update add bluetooth default || print_warning "Impossible d'ajouter bluetooth au démarrage"
-
-# Installation des paquets spécifiques au CPU
-if [ "$CPU_TYPE" = "intel" ]; then
-    print_message "Installation des paquets spécifiques pour Intel..."
-    install_packages "intel-ucode mesa mesa-dri-intel intel-media-driver" "les paquets Intel"
-elif [ "$CPU_TYPE" = "amd" ]; then
-    print_message "Installation des paquets spécifiques pour AMD..."
-    install_packages "amd-ucode mesa mesa-dri-gallium mesa-vulkan-ati" "les paquets AMD"
-else
-    print_message "Installation des paquets génériques pour le GPU..."
-    install_packages "mesa mesa-dri" "les paquets GPU génériques"
 fi
 
-# Installation des paquets NVIDIA si détecté
-if [ "$HAS_NVIDIA" = "true" ]; then
-    install_packages "nvidia-driver nvidia-modules" "les paquets NVIDIA"
-fi
-
-# Fonction pour copier les fichiers de configuration d'origine avec timeout
-copy_config_file() {
-    count=$#
-    eval dest_dir=\$$count
-    count=$((count - 1))
-    eval file_name=\$$count
-    count=$((count - 1))
-
-    mkdir -p "$dest_dir"
-
-    found=0
-    i=1
-    while [ $i -le $count ]; do
-        eval src_path=\$$i
-        if [ -f "$src_path" ]; then
-            cp "$src_path" "$dest_dir/$file_name"
-            print_success "Fichier de configuration copié: $src_path -> $dest_dir/$file_name"
-            found=1
-            break
+# 4b. Screen resolution
+read -p ">> Enter output name for screen resolution (e.g., eDP-1, HDMI-1) or press Enter to skip: " DISP
+if [ -n "$DISP" ]; then
+    read -p ">> Enter resolution for $DISP (e.g., 1920x1080): " RES
+    if [ -n "$RES" ]; then
+        if ! grep -q "$DISP --mode $RES" "$I3CONFIG"; then
+            echo ":: Adding xrandr command for $DISP $RES in i3 config..."
+            printf "\n# Screen resolution\nexec_always --no-startup-id xrandr --output %s --mode %s\n" "$DISP" "$RES" >> "$I3CONFIG"
+            echo "   (Note: Ensure '$DISP' is correct; use xrandr to list outputs):contentReference[oaicite:75]{index=75}"
         fi
-        i=$((i + 1))
-    done
-
-    if [ "$found" -eq 0 ]; then
-        print_warning "Aucun fichier de configuration trouvé pour $file_name, création d'un fichier vide"
-        touch "$dest_dir/$file_name"
     fi
-}
+fi
 
-# Configuration pour l'utilisateur
-if [ -n "$USERNAME" ]; then
-    USER_HOME="/home/$USERNAME"
-    
-    # Ajout de l'utilisateur aux groupes nécessaires
-    print_message "Ajout de l'utilisateur $USERNAME aux groupes nécessaires..."
-    addgroup "$USERNAME" audio || print_warning "Impossible d'ajouter l'utilisateur au groupe audio"
-    addgroup "$USERNAME" video || print_warning "Impossible d'ajouter l'utilisateur au groupe video"
-    addgroup "$USERNAME" input || print_warning "Impossible d'ajouter l'utilisateur au groupe input"
-    
-    # Créer les répertoires de configuration
-    mkdir -p "$USER_HOME/.config/i3"
-    mkdir -p "$USER_HOME/.config/polybar"
-    mkdir -p "$USER_HOME/.config/rofi"
-    mkdir -p "$USER_HOME/.config/xfce4/terminal"
-    mkdir -p "$USER_HOME/.config/picom"
-    
-    # Copier les fichiers de configuration i3wm
-    print_message "Copie des fichiers de configuration i3wm..."
-    copy_config_file "/etc/i3/config" "/usr/share/doc/i3/config" "/usr/share/i3/config" "config" "$USER_HOME/.config/i3"
-    
-    # Créer une configuration polybar minimale si aucune n'est trouvée
-    print_message "Configuration de polybar..."
-    if ! copy_config_file "/etc/polybar/config.ini" "/usr/share/polybar/config.ini" "/usr/share/doc/polybar/config" "config.ini" "$USER_HOME/.config/polybar"; then
-        cat > "$USER_HOME/.config/polybar/config.ini" << EOF
-[colors]
-background = #282A2E
-foreground = #C5C8C6
-primary = #F0C674
-
-[bar/main]
-width = 100%
-height = 27
-radius = 0
-fixed-center = true
-background = \${colors.background}
-foreground = \${colors.foreground}
-padding-left = 0
-padding-right = 2
-module-margin-left = 1
-module-margin-right = 1
-font-0 = "DejaVu Sans:size=10;2"
-modules-left = i3
-modules-center = date
-modules-right = cpu memory
-tray-position = right
-tray-padding = 2
-
-[module/i3]
-type = internal/i3
-pin-workspaces = true
-strip-wsnumbers = true
-index-sort = true
-enable-click = true
-enable-scroll = false
-wrapping-scroll = false
-reverse-scroll = false
-fuzzy-match = true
-
-[module/cpu]
-type = internal/cpu
-interval = 2
-format-prefix = "CPU "
-format-prefix-foreground = \${colors.primary}
-label = %percentage:2%%
-
-[module/memory]
-type = internal/memory
-interval = 2
-format-prefix = "RAM "
-format-prefix-foreground = \${colors.primary}
-label = %percentage_used:2%%
-
-[module/date]
-type = internal/date
-interval = 1
-date = %Y-%m-%d%
-time = %H:%M:%S
-label = %date% %time%
-EOF
-        print_success "Configuration polybar minimale créée"
+# 4c. Multi-monitor auto-detection (autorandr)
+read -p ">> Enable autorandr for multi-monitor auto-detect? [y/N]: " MULTI
+if echo "$MULTI" | grep -iq "^y"; then
+    if ! grep -q "autorandr --change" "$I3CONFIG"; then
+        echo ":: Enabling autorandr in i3 config (auto multi-monitor)..."
+        printf "\n# Multi-monitor auto-detect\nexec_always --no-startup-id autorandr --change --default default\n" >> "$I3CONFIG"
     fi
-    
-    # Créer un script de lancement pour polybar
-    cat > "$USER_HOME/.config/polybar/launch.sh" << EOF
+    echo "   Tip: After logging into i3, arrange monitors and run 'autorandr --save default' to save default layout:contentReference[oaicite:76]{index=76}"
+fi
+
+# 5. Enable Ly login manager on boot (optional)
+read -p ">> Enable Ly (login manager) at boot? [Y/n]: " ENABLE_LY
+if [ -z "$ENABLE_LY" ] || echo "$ENABLE_LY" | grep -iq "^y"; then
+    rc-update add ly default 2>/dev/null || true
+    echo ":: Ly service enabled (will start at boot).:contentReference[oaicite:77]{index=77}"
+    echo "   - On reboot, Ly will start on tty7. If X fails, switch to tty1 (Ctrl+Alt+F1) to troubleshoot."
+else
+    echo ":: Ly not enabled. You can use startx to start i3 manually."
+fi
+
+# 6. .xinitrc setup for fallback startx usage:contentReference[oaicite:78]{index=78}
+XINITRC="$USER_HOME/.xinitrc"
+if [ ! -f "$XINITRC" ]; then
+    echo ":: Creating $XINITRC for startx fallback..."
+    cat > "$XINITRC" << 'EOF'
 #!/bin/sh
-
-# Terminate already running bar instances
-killall -q polybar
-
-# Wait until the processes have been shut down
-while pgrep -u \$UID -x polybar >/dev/null; do sleep 1; done
-
-# Launch polybar
-polybar main &
-
-echo "Polybar launched..."
-EOF
-    chmod +x "$USER_HOME/.config/polybar/launch.sh"
-    
-    # Modifier la configuration i3 pour utiliser polybar au lieu de i3status
-    if [ -f "$USER_HOME/.config/i3/config" ]; then
-        # Commenter la ligne i3status
-        sed -i 's/^bar {/# bar {/g' "$USER_HOME/.config/i3/config" || print_warning "Impossible de modifier la configuration i3 (bar)"
-        sed -i 's/^    status_bar/    # status_bar/g' "$USER_HOME/.config/i3/config" || print_warning "Impossible de modifier la configuration i3 (status_bar)"
-        sed -i 's/^}/# }/g' "$USER_HOME/.config/i3/config" || print_warning "Impossible de modifier la configuration i3 (})"
-        
-        # Ajouter le lancement de polybar
-        echo "" >> "$USER_HOME/.config/i3/config"
-        echo "# Lancer polybar au démarrage" >> "$USER_HOME/.config/i3/config"
-        echo "exec --no-startup-id $USER_HOME/.config/polybar/launch.sh" >> "$USER_HOME/.config/i3/config"
-        
-        # Ajouter la configuration du clavier français
-        echo "" >> "$USER_HOME/.config/i3/config"
-        echo "# Configuration du clavier français" >> "$USER_HOME/.config/i3/config"
-        echo "exec --no-startup-id setxkbmap fr" >> "$USER_HOME/.config/i3/config"
-    else
-        # Créer une configuration i3 minimale si aucune n'est trouvée
-        cat > "$USER_HOME/.config/i3/config" << EOF
-# Configuration i3 minimale
-set \$mod Mod4
-font pango:DejaVu Sans 10
-
-# Utiliser Mouse+\$mod pour déplacer les fenêtres flottantes
-floating_modifier \$mod
-
-# Terminal
-bindsym \$mod+Return exec xfce4-terminal
-
-# Tuer la fenêtre focalisée
-bindsym \$mod+Shift+q kill
-
-# Lanceur d'applications
-bindsym \$mod+d exec rofi -show drun
-
-# Changer le focus
-bindsym \$mod+j focus left
-bindsym \$mod+k focus down
-bindsym \$mod+l focus up
-bindsym \$mod+semicolon focus right
-
-# Déplacer la fenêtre focalisée
-bindsym \$mod+Shift+j move left
-bindsym \$mod+Shift+k move down
-bindsym \$mod+Shift+l move up
-bindsym \$mod+Shift+semicolon move right
-
-# Orientation de séparation
-bindsym \$mod+h split h
-bindsym \$mod+v split v
-
-# Mode plein écran
-bindsym \$mod+f fullscreen toggle
-
-# Changer le mode de conteneur
-bindsym \$mod+s layout stacking
-bindsym \$mod+w layout tabbed
-bindsym \$mod+e layout toggle split
-
-# Basculer entre fenêtre flottante/tiling
-bindsym \$mod+Shift+space floating toggle
-
-# Espaces de travail
-set \$ws1 "1"
-set \$ws2 "2"
-set \$ws3 "3"
-set \$ws4 "4"
-set \$ws5 "5"
-set \$ws6 "6"
-set \$ws7 "7"
-set \$ws8 "8"
-set \$ws9 "9"
-set \$ws10 "10"
-
-# Changer d'espace de travail
-bindsym \$mod+1 workspace number \$ws1
-bindsym \$mod+2 workspace number \$ws2
-bindsym \$mod+3 workspace number \$ws3
-bindsym \$mod+4 workspace number \$ws4
-bindsym \$mod+5 workspace number \$ws5
-bindsym \$mod+6 workspace number \$ws6
-bindsym \$mod+7 workspace number \$ws7
-bindsym \$mod+8 workspace number \$ws8
-bindsym \$mod+9 workspace number \$ws9
-bindsym \$mod+0 workspace number \$ws10
-
-# Déplacer une fenêtre vers un espace de travail
-bindsym \$mod+Shift+1 move container to workspace number \$ws1
-bindsym \$mod+Shift+2 move container to workspace number \$ws2
-bindsym \$mod+Shift+3 move container to workspace number \$ws3
-bindsym \$mod+Shift+4 move container to workspace number \$ws4
-bindsym \$mod+Shift+5 move container to workspace number \$ws5
-bindsym \$mod+Shift+6 move container to workspace number \$ws6
-bindsym \$mod+Shift+7 move container to workspace number \$ws7
-bindsym \$mod+Shift+8 move container to workspace number \$ws8
-bindsym \$mod+Shift+9 move container to workspace number \$ws9
-bindsym \$mod+Shift+0 move container to workspace number \$ws10
-
-# Recharger la configuration
-bindsym \$mod+Shift+c reload
-bindsym \$mod+Shift+r restart
-bindsym \$mod+Shift+e exec "i3-nagbar -t warning -m 'Voulez-vous quitter i3?' -B 'Oui' 'i3-msg exit'"
-
-# Redimensionner les fenêtres
-mode "resize" {
-        bindsym j resize shrink width 10 px or 10 ppt
-        bindsym k resize grow height 10 px or 10 ppt
-        bindsym l resize shrink height 10 px or 10 ppt
-        bindsym semicolon resize grow width 10 px or 10 ppt
-        bindsym Return mode "default"
-        bindsym Escape mode "default"
-        bindsym \$mod+r mode "default"
-}
-bindsym \$mod+r mode "resize"
-
-# Lancer polybar au démarrage
-exec --no-startup-id $USER_HOME/.config/polybar/launch.sh
-
-# Configuration du clavier français
-exec --no-startup-id setxkbmap fr
-
-# Lancer picom
-exec --no-startup-id picom -b
-
-# Fond d'écran
-exec --no-startup-id feh --bg-fill /usr/share/backgrounds/default.png
-EOF
-        print_success "Configuration i3 minimale créée"
-    fi
-    
-    # Créer le fichier .xinitrc pour l'utilisateur
-    print_message "Création du fichier .xinitrc..."
-    cat > "$USER_HOME/.xinitrc" << EOF
-#!/bin/sh
-
-# Configuration du clavier français
-setxkbmap fr &
-
-# Lancer i3
+# ~/.xinitrc - start i3 on X initiation
 exec i3
 EOF
-    chmod +x "$USER_HOME/.xinitrc"
-    print_success "Fichier .xinitrc créé"
-    
-    # Copier ou créer les fichiers de configuration rofi
-    print_message "Configuration de rofi..."
-    if ! copy_config_file "/etc/rofi/config.rasi" "/usr/share/rofi/config.rasi" "config.rasi" "$USER_HOME/.config/rofi"; then
-        cat > "$USER_HOME/.config/rofi/config.rasi" << EOF
-configuration {
-    modi: "window,run,ssh,drun";
-    font: "DejaVu Sans 12";
-    show-icons: true;
-    terminal: "xfce4-terminal";
-    drun-display-format: "{name}";
-    location: 0;
-    disable-history: false;
-    hide-scrollbar: true;
-    display-drun: "Applications";
-    display-run: "Commandes";
-    display-window: "Fenêtres";
-    display-ssh: "SSH";
-    sidebar-mode: true;
-}
-
-* {
-    background-color: #282a36;
-    border-color: #bd93f9;
-    text-color: #f8f8f2;
-    spacing: 0;
-    width: 512px;
-}
-
-inputbar {
-    border: 0 0 1px 0;
-    children: [prompt,entry];
-}
-
-prompt {
-    padding: 16px;
-    border: 0 1px 0 0;
-}
-
-entry {
-    padding: 16px;
-}
-
-listview {
-    cycle: false;
-    margin: 0 0 -1px 0;
-    scrollbar: false;
-}
-
-element {
-    border: 0 0 1px 0;
-    padding: 16px;
-}
-
-element selected {
-    background-color: #44475a;
-}
-EOF
-        print_success "Configuration rofi minimale créée"
-    fi
-    
-    # Copier ou créer les fichiers de configuration xfce4-terminal
-    print_message "Configuration de xfce4-terminal..."
-    if ! copy_config_file "/etc/xfce4/terminal/terminalrc" "/usr/share/xfce4/terminal/terminalrc" "terminalrc" "$USER_HOME/.config/xfce4/terminal"; then
-        cat > "$USER_HOME/.config/xfce4/terminal/terminalrc" << EOF
-[Configuration]
-FontName=DejaVu Sans Mono 12
-MiscAlwaysShowTabs=FALSE
-MiscBell=FALSE
-MiscBellUrgent=FALSE
-MiscBordersDefault=TRUE
-MiscCursorBlinks=FALSE
-MiscCursorShape=TERMINAL_CURSOR_SHAPE_BLOCK
-MiscDefaultGeometry=80x24
-MiscInheritGeometry=FALSE
-MiscMenubarDefault=TRUE
-MiscMouseAutohide=FALSE
-MiscMouseWheelZoom=TRUE
-MiscToolbarDefault=FALSE
-MiscConfirmClose=TRUE
-MiscCycleTabs=TRUE
-MiscTabCloseButtons=TRUE
-MiscTabCloseMiddleClick=TRUE
-MiscTabPosition=GTK_POS_TOP
-MiscHighlightUrls=TRUE
-MiscMiddleClickOpensUri=FALSE
-MiscCopyOnSelect=FALSE
-MiscShowRelaunchDialog=TRUE
-MiscRewrapOnResize=TRUE
-MiscUseShiftArrowsToScroll=FALSE
-MiscSlimTabs=FALSE
-MiscNewTabAdjacent=FALSE
-ColorForeground=#dcdcdc
-ColorBackground=#2c2c2c
-ColorCursor=#dcdcdc
-ColorPalette=#3f3f3f;#705050;#60b48a;#dfaf8f;#9ab8d7;#dc8cc3;#8cd0d3;#dcdcdc;#709080;#dca3a3;#72d5a3;#f0dfaf;#94bff3;#ec93d3;#93e0e3;#ffffff
-EOF
-        print_success "Configuration xfce4-terminal minimale créée"
-    fi
-    
-    # Copier ou créer les fichiers de configuration picom
-    print_message "Configuration de picom..."
-    if ! copy_config_file "/etc/xdg/picom.conf" "/etc/picom.conf" "/usr/share/doc/picom/picom.conf.example" "picom.conf" "$USER_HOME/.config/picom"; then
-        cat > "$USER_HOME/.config/picom/picom.conf" << EOF
-# Ombres
-shadow = true;
-shadow-radius = 7;
-shadow-offset-x = -7;
-shadow-offset-y = -7;
-shadow-opacity = 0.7;
-
-# Transparence
-inactive-opacity = 0.9;
-active-opacity = 1.0;
-frame-opacity = 0.9;
-inactive-opacity-override = false;
-
-# Flou
-blur-background = true;
-blur-method = "dual_kawase";
-blur-strength = 5;
-
-# Coins arrondis
-corner-radius = 10;
-rounded-corners-exclude = [
-  "class_g = 'Polybar'",
-  "class_g = 'i3bar'"
-];
-
-# Animations
-transition-length = 300;
-transition-pow-x = 0.1;
-transition-pow-y = 0.1;
-transition-pow-w = 0.1;
-transition-pow-h = 0.1;
-size-transition = true;
-
-# Général
-backend = "glx";
-vsync = true;
-mark-wmwin-focused = true;
-mark-ovredir-focused = true;
-detect-rounded-corners = true;
-detect-client-opacity = true;
-use-damage = true;
-log-level = "warn";
-EOF
-        print_success "Configuration picom minimale créée"
-    fi
-    
-    # Changer le propriétaire des fichiers de configuration
-    chown -R "$USERNAME:$USERNAME" "$USER_HOME/.config" "$USER_HOME/.xinitrc" || print_warning "Impossible de changer le propriétaire des fichiers de configuration"
-    print_success "Configuration pour l'utilisateur $USERNAME terminée"
+    chown "$USER_NAME:" "$XINITRC"
+    chmod +x "$XINITRC"
+    echo " + $XINITRC created (executes i3):contentReference[oaicite:79]{index=79}"
 fi
 
-# Configuration de ly-dm pour utiliser le bon TTY et lancer i3
-print_message "Configuration de ly-dm..."
-
-# Créer le répertoire de configuration si nécessaire
-mkdir -p /etc/ly
-
-# Créer ou modifier le fichier de configuration de ly
-cat > /etc/ly/config.ini << EOF
-# Ly configuration
-
-# Animation enabled
-#animate = true
-
-# TTY to run on
-tty = 1
-
-# Default desktop environment
-desktop = i3
-
-# Enable X
-xauth_cmd = /usr/bin/xauth
-x_cmd = /usr/bin/X
-x_cmd_setup = /usr/bin/Xsetup
-
-# Console path
-console_dev = /dev/console
-
-# Minimum UID
-minimum_uid = 1000
-
-# Hide F1/F2 prompt
-#hide_f1_f2 = false
-
-# Load X display
-load = true
-
-# Save X display
-save = true
-
-# Blank time (in minutes)
-blank_time = 10
-
-# X background color
-#bg = #000000
-
-# Terminal reset command (tput is faster)
-#term_reset_cmd = /usr/bin/tput reset
-
-# Input special characters
-#input_special = true
-EOF
-
-# Activer ly au démarrage
-rc-update add ly default || print_warning "Impossible d'ajouter ly au démarrage"
-
-# Créer un fichier Xsession pour i3
-print_message "Configuration de Xsession pour i3..."
-cat > /etc/X11/xinit/Xsession << EOF
-#!/bin/sh
-
-# Source profile
-if [ -f /etc/profile ]; then
-    . /etc/profile
-fi
-
-# Source user profile
-if [ -f \$HOME/.profile ]; then
-    . \$HOME/.profile
-fi
-
-# Source xinitrc if exists
-if [ -f \$HOME/.xinitrc ]; then
-    exec \$HOME/.xinitrc
-else
-    # Default to i3
-    exec i3
-fi
-EOF
-chmod +x /etc/X11/xinit/Xsession
-
-# Créer un répertoire pour les fonds d'écran
-print_message "Création d'un répertoire pour les fonds d'écran..."
-mkdir -p /usr/share/backgrounds
-# Créer un fond d'écran par défaut si nécessaire
-if [ ! -f /usr/share/backgrounds/default.png ]; then
-    # Créer un fond d'écran noir simple
-    convert -size 1920x1080 xc:black /usr/share/backgrounds/default.png || print_warning "Impossible de créer un fond d'écran par défaut"
-fi
-
-# Finalisation
-print_message "Installation de l'environnement de bureau terminée !"
-print_message "Redémarrez le système puis exécutez le script step3_virtualization_setup.sh"
-
-# Demande de redémarrage avec timeout
-print_message "Voulez-vous redémarrer maintenant ? (o/n) - Répondez dans les 30 secondes"
-read -t 30 -r REBOOT || REBOOT="n"
-if [ "$REBOOT" = "o" ] || [ "$REBOOT" = "O" ]; then
-    print_message "Redémarrage du système..."
-    reboot
-fi
-
-# Désactiver le mode debug
-set +x
-
-print_message "Script terminé. Redémarrez manuellement avec la commande 'reboot'"
+echo "== Setup Complete! =="
+echo "You can now reboot to use Ly login (or run 'startx' for a test). Enjoy i3 with Polybar and Rofi!"
