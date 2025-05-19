@@ -119,14 +119,16 @@ if [ -n "$KB" ]; then
     fi
 fi
 
-# 4b. Screen Resolution prompt (using DRM sysfs, no X required)
+# 4b. Screen Resolution prompt (via DRM sysfs, no X required)
 echo ">> Screen Resolution Configuration (via /sys/class/drm)"
 if [ -d /sys/class/drm ]; then
-    for status in /sys/class/drm/*/status; do
+    for status in /sys/class/drm/card*-*/status; do
         if grep -q connected "$status"; then
-            conn=$(basename "$(dirname "$status")")
+            dir=$(dirname "$status")
+            full=$(basename "$dir")
+            conn=${full#card*-}
             echo "  • $conn"
-            modefile="/sys/class/drm/$conn/modes"
+            modefile="$dir/modes"
             if [ -f "$modefile" ]; then
                 while IFS= read -r mode; do
                     echo "     └ mode: $mode"
@@ -140,7 +142,8 @@ else
     echo "   ⚠️  /sys/class/drm not found; cannot list connectors."
 fi
 
-printf ">> Enter the output name to configure (e.g. HDMI-A-1): "
+# Prompt with the cleaned-up names
+printf ">> Enter the output name to configure (e.g. HDMI-A-1, eDP-1, DP-1): "
 read DISP
 if [ -n "$DISP" ]; then
     printf ">> Enter desired resolution for %s (e.g. 1920x1080): " "$DISP"
@@ -148,8 +151,8 @@ if [ -n "$DISP" ]; then
     if [ -n "$RES" ]; then
         if ! grep -q "xrandr --output $DISP" "$I3CONFIG"; then
             echo ">> Adding xrandr command for $DISP $RES in i3 config..."
-            printf "\n# Set screen resolution for $DISP\nexec_always --no-startup-id xrandr --output %s --mode %s\n" \
-                "$DISP" "$RES" >> "$I3CONFIG"
+            printf "\n# Set screen resolution for %s\nexec_always --no-startup-id xrandr --output %s --mode %s\n" \
+                "$DISP" "$DISP" "$RES" >> "$I3CONFIG"
         fi
     fi
 fi
