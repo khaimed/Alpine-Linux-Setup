@@ -1,5 +1,5 @@
 #!/bin/sh
-# Step 2: Desktop Environment Setup Script (Fixed Version)
+# Step 2: Desktop Environment Setup Script
 # This script installs and configures i3wm, polybar, and other desktop components
 # Run this script after step1_base_setup.sh and a system reboot
 
@@ -86,7 +86,6 @@ install_packages "polybar" "polybar"
 
 # Installation de ly-dm
 install_packages "ly" "ly-dm"
-rc-update add ly default || print_warning "Impossible d'ajouter ly au démarrage"
 
 # Installation des polices
 install_packages "font-dejavu ttf-dejavu ttf-liberation fontconfig" "les polices"
@@ -141,11 +140,10 @@ copy_config_file() {
     done
 
     if [ "$found" -eq 0 ]; then
-        print_warning "Aucun fichier de configuration trouvé pour $file_name, création d’un fichier vide"
+        print_warning "Aucun fichier de configuration trouvé pour $file_name, création d'un fichier vide"
         touch "$dest_dir/$file_name"
     fi
 }
-
 
 # Configuration pour l'utilisateur
 if [ -n "$USERNAME" ]; then
@@ -258,6 +256,11 @@ EOF
         echo "" >> "$USER_HOME/.config/i3/config"
         echo "# Lancer polybar au démarrage" >> "$USER_HOME/.config/i3/config"
         echo "exec --no-startup-id $USER_HOME/.config/polybar/launch.sh" >> "$USER_HOME/.config/i3/config"
+        
+        # Ajouter la configuration du clavier français
+        echo "" >> "$USER_HOME/.config/i3/config"
+        echo "# Configuration du clavier français" >> "$USER_HOME/.config/i3/config"
+        echo "exec --no-startup-id setxkbmap fr" >> "$USER_HOME/.config/i3/config"
     else
         # Créer une configuration i3 minimale si aucune n'est trouvée
         cat > "$USER_HOME/.config/i3/config" << EOF
@@ -360,6 +363,9 @@ bindsym \$mod+r mode "resize"
 # Lancer polybar au démarrage
 exec --no-startup-id $USER_HOME/.config/polybar/launch.sh
 
+# Configuration du clavier français
+exec --no-startup-id setxkbmap fr
+
 # Lancer picom
 exec --no-startup-id picom -b
 
@@ -368,6 +374,20 @@ exec --no-startup-id feh --bg-fill /usr/share/backgrounds/default.png
 EOF
         print_success "Configuration i3 minimale créée"
     fi
+    
+    # Créer le fichier .xinitrc pour l'utilisateur
+    print_message "Création du fichier .xinitrc..."
+    cat > "$USER_HOME/.xinitrc" << EOF
+#!/bin/sh
+
+# Configuration du clavier français
+setxkbmap fr &
+
+# Lancer i3
+exec i3
+EOF
+    chmod +x "$USER_HOME/.xinitrc"
+    print_success "Fichier .xinitrc créé"
     
     # Copier ou créer les fichiers de configuration rofi
     print_message "Configuration de rofi..."
@@ -519,8 +539,97 @@ EOF
     fi
     
     # Changer le propriétaire des fichiers de configuration
-    chown -R "$USERNAME:$USERNAME" "$USER_HOME/.config" || print_warning "Impossible de changer le propriétaire des fichiers de configuration"
+    chown -R "$USERNAME:$USERNAME" "$USER_HOME/.config" "$USER_HOME/.xinitrc" || print_warning "Impossible de changer le propriétaire des fichiers de configuration"
     print_success "Configuration pour l'utilisateur $USERNAME terminée"
+fi
+
+# Configuration de ly-dm pour utiliser le bon TTY et lancer i3
+print_message "Configuration de ly-dm..."
+
+# Créer le répertoire de configuration si nécessaire
+mkdir -p /etc/ly
+
+# Créer ou modifier le fichier de configuration de ly
+cat > /etc/ly/config.ini << EOF
+# Ly configuration
+
+# Animation enabled
+#animate = true
+
+# TTY to run on
+tty = 1
+
+# Default desktop environment
+desktop = i3
+
+# Enable X
+xauth_cmd = /usr/bin/xauth
+x_cmd = /usr/bin/X
+x_cmd_setup = /usr/bin/Xsetup
+
+# Console path
+console_dev = /dev/console
+
+# Minimum UID
+minimum_uid = 1000
+
+# Hide F1/F2 prompt
+#hide_f1_f2 = false
+
+# Load X display
+load = true
+
+# Save X display
+save = true
+
+# Blank time (in minutes)
+blank_time = 10
+
+# X background color
+#bg = #000000
+
+# Terminal reset command (tput is faster)
+#term_reset_cmd = /usr/bin/tput reset
+
+# Input special characters
+#input_special = true
+EOF
+
+# Activer ly au démarrage
+rc-update add ly default || print_warning "Impossible d'ajouter ly au démarrage"
+
+# Créer un fichier Xsession pour i3
+print_message "Configuration de Xsession pour i3..."
+cat > /etc/X11/xinit/Xsession << EOF
+#!/bin/sh
+
+# Source profile
+if [ -f /etc/profile ]; then
+    . /etc/profile
+fi
+
+# Source user profile
+if [ -f \$HOME/.profile ]; then
+    . \$HOME/.profile
+fi
+
+# Source xinitrc if exists
+if [ -f \$HOME/.xinitrc ]; then
+    exec \$HOME/.xinitrc
+else
+    # Default to i3
+    exec i3
+fi
+EOF
+chmod +x /etc/X11/xinit/Xsession
+
+# Créer un répertoire pour les fonds d'écran
+print_message "Création d'un répertoire pour les fonds d'écran..."
+mkdir -p /usr/share/backgrounds
+# Créer un fond d'écran par défaut si nécessaire
+if [ ! -f /usr/share/backgrounds/default.png ]; then
+    # Créer un fond d'écran noir simple
+    convert -size 1920x1080 xc:black /usr/share/backgrounds/default.png || print_warning "Impossible de créer un fond d'écran par défaut"
 fi
 
 # Finalisation
