@@ -72,7 +72,7 @@ install_packages() {
 }
 
 # Installation des paquets pour l'environnement graphique minimal
-install_packages "xorg-server xorg-server-common xf86-input-libinput xf86-video-fbdev xf86-input-mouse xf86-input-keyboard xf86-input-evdev xorg-apps xauth xinit xrandr mesa-gl mesa-egl mesa-dri" "l'environnement graphique minimal"
+install_packages "xorg-server xorg-server-common xf86-input-libinput xf86-video-fbdev xf86-input-evdev xauth xinit xrandr mesa-gl mesa-egl" "l'environnement graphique minimal"
 
 # Installation de i3wm et composants
 install_packages "i3wm i3lock dmenu" "i3wm"
