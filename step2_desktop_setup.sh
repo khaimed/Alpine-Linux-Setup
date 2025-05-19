@@ -119,30 +119,28 @@ if [ -n "$KB" ]; then
     fi
 fi
 
-# 4b. Screen Resolution prompt (safe outside or inside X)
-echo ">> Screen Resolution Configuration"
-if [ -n "${DISPLAY-}" ]; then
-    echo "   Available outputs and their modes:"
-    # List each connected output and its modes
-    xrandr --query | awk '
-      / connected/ {
-        out=$1
-        printf "  • %s\n", $0
-        next
-      }
-      /^[[:alnum:]-]+/ && $2 ~ /^[0-9]+x[0-9]+$/ && prev_out {
-        printf "     └ mode: %s\n", $1
-      }
-      { prev_out = ($2=="connected"? $1 : prev_out) }
-    '
+# 4b. Screen Resolution prompt (using DRM sysfs, no X required)
+echo ">> Screen Resolution Configuration (via /sys/class/drm)"
+if [ -d /sys/class/drm ]; then
+    for status in /sys/class/drm/*/status; do
+        if grep -q connected "$status"; then
+            conn=$(basename "$(dirname "$status")")
+            echo "  • $conn"
+            modefile="/sys/class/drm/$conn/modes"
+            if [ -f "$modefile" ]; then
+                while IFS= read -r mode; do
+                    echo "     └ mode: $mode"
+                done < "$modefile"
+            else
+                echo "     (no modes listed)"
+            fi
+        fi
+    done
 else
-    echo "   Warning: No X display found. Cannot list outputs."
-    echo "            If you want the auto-listing, log into X (via Ly or startx),"
-    echo "            open a terminal, and rerun this script in that terminal."
+    echo "   ⚠️  /sys/class/drm not found; cannot list connectors."
 fi
 
-# Prompt regardless, so you can still configure manually
-printf ">> Enter the output name to configure (e.g. eDP-1): "
+printf ">> Enter the output name to configure (e.g. HDMI-A-1): "
 read DISP
 if [ -n "$DISP" ]; then
     printf ">> Enter desired resolution for %s (e.g. 1920x1080): " "$DISP"
