@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Fallback for X if systemd is missing
+[ -z "$DISPLAY" ] && export DISPLAY=":0"
+
+# Set up your own runtime dir instead of /run/user
+export XDG_RUNTIME_DIR="/tmp/$UID-runtime"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Fix Xauthority path
+export XAUTHORITY="$HOME/.Xauthority"
+touch "$XAUTHORITY"
+chmod 600 "$XAUTHORITY"
+
+# Generate cookie if missing
+if ! xauth list | grep -q "$DISPLAY"; then
+  command -v mcookie >/dev/null && \
+  xauth add "$DISPLAY" . "$(mcookie)"
+fi
